@@ -18,65 +18,78 @@ namespace PowerplantCodingChallengeTest.Bussiness
         {
             ResponseDto responseDto = new ResponseDto();
             List<UnitCommitmentDto> unitCommitmentList = new List<UnitCommitmentDto>();
+
             if (payload != null && payload.Powerplants.Count > new int())
             {
-                foreach (PowerplantDto powerplant in payload.Powerplants.OrderBy(p => p.MwhPrice).ThenBy(p => p.Pmin))
+                unitCommitmentList = GetUnitsWhilePowerIsInMinValue(payload.Powerplants);
+                decimal remainingPower = payload.Load - unitCommitmentList.Sum(u => u.Power);
+                if (remainingPower > new decimal())
                 {
-                    UnitCommitmentDto unitCommitment = new UnitCommitmentDto() { Name = powerplant.Name, Power = powerplant.Pmax, MwhPrice = powerplant.MwhPrice, Pmin = powerplant.Pmin, Pmax = powerplant.Pmax };
-                    unitCommitmentList.Add(unitCommitment); // add UnitCommitment after setting the power to the max 
-                    decimal unitsPowerSum = unitCommitmentList.Sum(u => u.Power);
-                    if (unitsPowerSum == payload.Load) break; // check if load is reached
-                    if (unitsPowerSum > payload.Load) // check if the load is exceeded to start decreasing the power till reach the required load
+                    // try to increase the unit power taking in count the pmax and the price
+                    foreach (UnitCommitmentDto unitCommitmentItem in unitCommitmentList.OrderBy(p => p.MwhPrice).ThenBy(p => p.Pmin))
                     {
-                        unitCommitmentList = DecreaseUnitCommitmentMaxPowerTillReachLoad(unitCommitmentList, payload.Load);
-                        break;
+                        if (remainingPower > new decimal())
+                        {
+                            decimal differnceBetweenMaxAndMin = unitCommitmentItem.Pmax - unitCommitmentItem.Pmin;
+                            if (differnceBetweenMaxAndMin > remainingPower)
+                            {
+                                unitCommitmentItem.Power = unitCommitmentItem.Pmin + remainingPower;
+                                remainingPower = new decimal();
+                            }
+                            else if (differnceBetweenMaxAndMin == remainingPower)
+                            {
+                                unitCommitmentItem.Power = unitCommitmentItem.Pmax;
+                                remainingPower = unitCommitmentItem.Pmin;
+                            }
+                            else
+                            {
+                                unitCommitmentItem.Power = unitCommitmentItem.Pmax;
+                                remainingPower = remainingPower - differnceBetweenMaxAndMin;
+                            }
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                 }
-                if (unitCommitmentList.Sum(u => u.Power) == payload.Load)
-                {
-                    responseDto.UnitCommitmentDtoList = unitCommitmentList;
-                    responseDto.IsRequestSucceeded = true;
-                    responseDto.ErrorMessage = "No error";
-                }
-                else
-                {
-                    responseDto.UnitCommitmentDtoList = new List<UnitCommitmentDto>();
-                    responseDto.IsRequestSucceeded = false;
-                    responseDto.ErrorMessage = "Error Happens , Could not reach required load";
-                }
+            }
+            responseDto = SetTheResponse(unitCommitmentList, payload.Load);
+            return responseDto;
+        }
 
+        #region Private Methods
+        private ResponseDto SetTheResponse(List<UnitCommitmentDto> unitCommitmentList, int load)
+        {
+            ResponseDto responseDto = new ResponseDto();
+            if (unitCommitmentList.Sum(u => u.Power) == load)
+            {
+                responseDto.UnitCommitmentDtoList = unitCommitmentList.OrderBy(u => u.MwhPrice).ThenBy(u => u.Pmin).ToList();
+                responseDto.IsRequestSucceeded = true;
+                responseDto.ErrorMessage = "No error";
+            }
+            else
+            {
+                responseDto.UnitCommitmentDtoList = new List<UnitCommitmentDto>();
+                responseDto.IsRequestSucceeded = false;
+                responseDto.ErrorMessage = "Error Happens , Could not reach required load";
             }
             return responseDto;
         }
-        /// <summary>
-        /// DecreaseUnit Commitment Max Power Till Reach Load
-        /// </summary>
-        /// <param name="unitCommitmentList"></param>
-        /// <param name="load"></param>
-        /// <returns>List<UnitCommitmentDto></returns>
-        private List<UnitCommitmentDto> DecreaseUnitCommitmentMaxPowerTillReachLoad(List<UnitCommitmentDto> unitCommitmentList, int load)
+
+        private List<UnitCommitmentDto> GetUnitsWhilePowerIsInMinValue(List<PowerplantDto> powerplants)
         {
-            List<UnitCommitmentDto> unitCommitmentDtoList = new List<UnitCommitmentDto>();
-            decimal overPowerValue = unitCommitmentList.Sum(u => u.Power) - load;
-            foreach (UnitCommitmentDto unitCommitmentDto in unitCommitmentList.OrderByDescending(u => u.MwhPrice).ThenBy(u => u.Pmin))
+            List<UnitCommitmentDto> unitCommitmentDtos = powerplants.Select(p => new UnitCommitmentDto()
             {
-                unitCommitmentList.Remove(unitCommitmentDto);
-                if (unitCommitmentDto.Pmax - unitCommitmentDto.Pmin > new int()) unitCommitmentDto.Power = unitCommitmentDto.Pmin; // Check if the min power can be used instead of the max power
-                decimal unitCommitmenPowerAfterDecrease = unitCommitmentList.Sum(u => u.Power) + unitCommitmentDto.Power; // Check the power sum before adding the decreased  UnitCommitment to the list
-                if (unitCommitmenPowerAfterDecrease == load)// Check if the power after decrease is matching the load
-                {
-                    unitCommitmentDtoList.Add(unitCommitmentDto);
-                    break;
-                }
-                if (unitCommitmenPowerAfterDecrease < load)
-                {
-                    unitCommitmentDto.Power += load - unitCommitmenPowerAfterDecrease; // add the reamining power to the decreased unit to match the load
-                    unitCommitmentDtoList.Add(unitCommitmentDto);
-                    break;
-                }
-            }
-            unitCommitmentDtoList.AddRange(unitCommitmentList);
-            return unitCommitmentDtoList.OrderBy(u => u.MwhPrice).ThenBy(u => u.Pmin).ToList();
-        }
+                Name = p.Name,
+                MwhPrice = p.MwhPrice,
+                Power = p.Pmin,
+                Pmax = p.Pmax,
+                Pmin = p.Pmin
+            }).ToList();
+
+            return unitCommitmentDtos;
+        } 
+        #endregion
     }
 }
